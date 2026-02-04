@@ -1,0 +1,23 @@
+{
+  "name": "cs2-discord-muter",
+  "version": "1.0.0",
+  "description": "Automatically mutes Discord users when they die in Counter-Strike 2",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "discord",
+    "cs2",
+    "counter-strike",
+    "game-state-integration",
+    "mute"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.14.1",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  }
+}

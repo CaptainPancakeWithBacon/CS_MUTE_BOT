@@ -1,0 +1,133 @@
+=====================================
+  CS2 DEATH MUTER - HOST SETUP GUIDE
+=====================================
+
+Follow these steps to set up the bot on your Windows PC.
+
+
+========================================
+PART 1: ONE-TIME SETUP
+========================================
+
+STEP 1: Install Node.js
+-----------------------
+Download and install from: https://nodejs.org
+(Get the LTS version)
+
+
+STEP 2: Install Dependencies
+----------------------------
+Open Command Prompt in this folder and run:
+
+    npm install
+
+
+STEP 3: Create Discord Bot
+--------------------------
+1. Go to https://discord.com/developers/applications
+2. Click "New Application" and name it (e.g., "CS2 Death Muter")
+3. Go to "Bot" in the left sidebar
+4. Click "Reset Token" and copy the token
+5. Enable "Server Members Intent" under Privileged Gateway Intents
+6. Save changes
+
+
+STEP 4: Configure Bot Token
+---------------------------
+1. Rename ".env.example" to ".env"
+2. Open ".env" in Notepad
+3. Replace "your_bot_token_here" with your bot token
+4. Save the file
+
+
+STEP 5: Invite Bot to Server
+----------------------------
+1. In Discord Developer Portal, go to "OAuth2" > "URL Generator"
+2. Select scopes: "bot" and "applications.commands"
+3. Select permissions: "Mute Members" and "View Channels"
+4. Copy the URL and open it in your browser
+5. Select your server and authorize
+
+
+STEP 6: Install Ngrok
+---------------------
+1. Download from: https://ngrok.com/download
+2. Extract ngrok.exe somewhere (e.g., C:\ngrok\)
+3. Add it to your PATH or put it in this folder
+4. Sign up at ngrok.com (free)
+5. Get your auth token from the dashboard
+6. Run once: ngrok config add-authtoken YOUR_TOKEN
+
+
+STEP 7: (Optional) Get Static Domain
+------------------------------------
+Free ngrok accounts get ONE free static domain:
+1. Go to ngrok dashboard > Cloud Edge > Domains
+2. Create a free static domain
+3. You'll get something like: your-name.ngrok-free.app
+
+This means the URL never changes!
+
+
+========================================
+PART 2: PREPARE FRIEND PACKAGE
+========================================
+
+STEP 8: Update Friend Config
+----------------------------
+1. Open "friend-config\gamestate_integration_discordmuter.cfg"
+2. Replace YOUR_NGROK_URL_HERE with your ngrok URL
+   Example: "uri" "https://your-name.ngrok-free.app"
+3. Save the file
+
+
+STEP 9: Share With Friends
+--------------------------
+Send the "friend-config" folder to your friends.
+They just need to:
+1. Run install-gsi.bat
+2. Restart CS2
+3. Type /register in Discord
+
+
+========================================
+PART 3: RUNNING THE BOT
+========================================
+
+Every time you want to play:
+
+1. Run "start-server.bat" (keep it open)
+2. Run "start-ngrok.bat" (keep it open)
+   - If using static domain: ngrok http --domain=your-name.ngrok-free.app 3000
+
+Both windows must stay open while playing!
+
+
+========================================
+QUICK START AFTER SETUP
+========================================
+
+1. Double-click start-server.bat
+2. Double-click start-ngrok.bat
+3. Play CS2 with friends in Discord voice
+4. Die and get muted!
+
+
+========================================
+TROUBLESHOOTING
+========================================
+
+Bot not responding to /commands?
+- Wait 1-2 minutes, global commands take time to register
+- Make sure bot is in your server with correct permissions
+
+Friends not getting muted?
+- Check their GSI config has the correct ngrok URL
+- Make sure they restarted CS2
+- Make sure they used /register with correct Steam ID
+- Check start-server.bat window for death detection logs
+
+Ngrok URL changed?
+- Free accounts without static domain get new URL each restart
+- Update friend-config and have friends reinstall
+- OR get a free static domain (recommended!)
