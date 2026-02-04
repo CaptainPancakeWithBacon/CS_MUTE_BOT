@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 echo.
 echo CS2 GSI Config Installer
 echo ========================
@@ -31,12 +32,12 @@ if not exist "%CS2_CFG%" (
     )
 )
 
-echo Found CS2 at: %CS2_CFG%
+echo Found CS2 at: !CS2_CFG!
 echo.
 
-copy /Y "gamestate_integration_discordmuter.cfg" "%CS2_CFG%\" >nul 2>&1
+copy /Y "gamestate_integration_discordmuter.cfg" "!CS2_CFG!\" >nul 2>&1
 
-if %errorlevel% equ 0 (
+if !errorlevel! equ 0 (
     echo Config installed.
     echo.
     echo Next:

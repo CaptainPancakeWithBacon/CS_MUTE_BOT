@@ -185,11 +185,12 @@ client.login(process.env.DISCORD_BOT_TOKEN);
 // express server for gsi
 const app = express();
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.post('/', (req, res) => {
   res.status(200).end();
 
-  const gs = req.body;
+  const gs = req.body.data ? JSON.parse(req.body.data) : req.body;
   if (!gs.provider) return;
 
   const steamId = gs.provider.steamid;
@@ -199,8 +200,8 @@ app.post('/', (req, res) => {
   // check round phase - move everyone back when round ends
   const roundPhase = gs.round?.phase;
   if (roundPhase && roundPhase !== lastRoundPhase) {
-    // freezetime = new round starting, over = round just ended
-    if (roundPhase === 'freezetime' || roundPhase === 'over') {
+    // freezetime = new round starting, over = round just ended, warmup = warmup started
+    if (roundPhase === 'freezetime' || roundPhase === 'over' || roundPhase === 'warmup') {
       console.log(`round ended (phase: ${roundPhase}), moving dead players back`);
       moveAllBack();
     }
@@ -212,7 +213,7 @@ app.post('/', (req, res) => {
   const health = gs.player.state?.health ?? 100;
   const prev = playerStates.get(steamId) || { health: 100 };
 
-  if (prev.health > 0 && health === 0) {
+  if (prev.health > 0 && health === 0 && roundPhase === 'live') {
     console.log(`${steamId} died`);
     moveToDeadChannel(discordId);
   }
