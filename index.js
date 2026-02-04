@@ -1,14 +1,14 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, SlashCommandBuilder, REST, Routes, EmbedBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const express = require('express');
 
-const MUTE_DURATION = 3000;
 const PLAYERS_FILE = path.join(__dirname, 'players.json');
+const CONFIG_FILE = path.join(__dirname, 'config.json');
 const PORT = process.env.PORT || 3000;
 
-// player data stuff
+// player data
 function loadPlayers() {
   try {
     if (fs.existsSync(PLAYERS_FILE)) {
@@ -28,8 +28,33 @@ function savePlayers(players) {
   }
 }
 
+// config (dead channel per guild)
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG_FILE)) {
+      return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+    }
+  } catch (err) {
+    console.log('couldnt load config.json:', err.message);
+  }
+  return { deadChannels: {} };
+}
+
+function saveConfig(config) {
+  try {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+  } catch (err) {
+    console.log('couldnt save config.json:', err.message);
+  }
+}
+
 let players = loadPlayers();
+let config = loadConfig();
 const playerStates = new Map();
+
+// track dead players: visordId -> { visordId, originalChannelId, guildId }
+const deadPlayers = new Map();
+let lastRoundPhase = null;
 
 // discord bot
 const client = new Client({
@@ -39,17 +64,25 @@ const client = new Client({
 const commands = [
   new SlashCommandBuilder()
     .setName('register')
-    .setDescription('Register your Steam ID to get muted when you die')
+    .setDescription('Register your Steam ID to get moved when you die')
     .addStringOption(opt => opt.setName('steam_id').setDescription('Your steamID64 from steamid.io').setRequired(true)),
   new SlashCommandBuilder()
     .setName('unregister')
-    .setDescription('Remove yourself from the death muter'),
+    .setDescription('Remove yourself from the death mover'),
   new SlashCommandBuilder()
     .setName('players')
     .setDescription('Show registered players'),
   new SlashCommandBuilder()
     .setName('status')
     .setDescription('Check if youre registered'),
+  new SlashCommandBuilder()
+    .setName('setdeadchannel')
+    .setDescription('Set the channel where dead players get moved')
+    .addChannelOption(opt => opt.setName('channel').setDescription('Voice channel for dead players').addChannelTypes(ChannelType.GuildVoice).setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
+  new SlashCommandBuilder()
+    .setName('deadchannel')
+    .setDescription('Show the current dead channel'),
 ].map(cmd => cmd.toJSON());
 
 client.once('ready', async () => {
@@ -129,6 +162,22 @@ client.on('interactionCreate', async interaction => {
     }
     return interaction.reply({ content: `registered with steam id: \`${entry[0]}\``, ephemeral: true });
   }
+
+  if (commandName === 'setdeadchannel') {
+    const channel = interaction.options.getChannel('channel');
+    config.deadChannels[interaction.guildId] = channel.id;
+    saveConfig(config);
+    console.log(`dead channel set to ${channel.name} in ${interaction.guild.name}`);
+    return interaction.reply({ content: `dead channel set to ${channel}`, ephemeral: true });
+  }
+
+  if (commandName === 'deadchannel') {
+    const channelId = config.deadChannels[interaction.guildId];
+    if (!channelId) {
+      return interaction.reply({ content: 'no dead channel set. use /setdeadchannel', ephemeral: true });
+    }
+    return interaction.reply({ content: `dead channel: <#${channelId}>`, ephemeral: true });
+  }
 });
 
 client.login(process.env.DISCORD_BOT_TOKEN);
@@ -141,43 +190,94 @@ app.post('/', (req, res) => {
   res.status(200).end();
 
   const gs = req.body;
-  if (!gs.player || !gs.provider) return;
+  if (!gs.provider) return;
 
   const steamId = gs.provider.steamid;
-  const health = gs.player.state?.health ?? 100;
   const discordId = players[steamId];
-
   if (!discordId) return;
 
+  // check round phase - move everyone back when round ends
+  const roundPhase = gs.round?.phase;
+  if (roundPhase && roundPhase !== lastRoundPhase) {
+    // freezetime = new round starting, over = round just ended
+    if (roundPhase === 'freezetime' || roundPhase === 'over') {
+      console.log(`round ended (phase: ${roundPhase}), moving dead players back`);
+      moveAllBack();
+    }
+    lastRoundPhase = roundPhase;
+  }
+
+  // check for death
+  if (!gs.player) return;
+  const health = gs.player.state?.health ?? 100;
   const prev = playerStates.get(steamId) || { health: 100 };
 
   if (prev.health > 0 && health === 0) {
     console.log(`${steamId} died`);
-    mutePlayer(discordId);
+    moveToDeadChannel(discordId);
   }
 
   playerStates.set(steamId, { health });
 });
 
-async function mutePlayer(userId) {
+async function moveToDeadChannel(userId) {
+  if (deadPlayers.has(userId)) return; // already dead
+
   for (const guild of client.guilds.cache.values()) {
     const member = await guild.members.fetch(userId).catch(() => null);
-    if (member?.voice.channel) {
-      console.log(`muting ${member.user.tag}`);
-      await member.voice.setMute(true, 'died in cs2');
+    if (!member?.voice.channel) continue;
 
-      setTimeout(async () => {
-        try {
-          await member.voice.setMute(false);
-          console.log(`unmuted ${member.user.tag}`);
-        } catch (e) {
-          console.log(`couldnt unmute ${member.user.tag}:`, e.message);
-        }
-      }, MUTE_DURATION);
+    const deadChannelId = config.deadChannels[guild.id];
+    if (!deadChannelId) {
+      console.log(`no dead channel set for ${guild.name}`);
+      continue;
+    }
 
+    const deadChannel = guild.channels.cache.get(deadChannelId);
+    if (!deadChannel) {
+      console.log(`dead channel not found in ${guild.name}`);
+      continue;
+    }
+
+    // already in dead channel
+    if (member.voice.channel.id === deadChannelId) continue;
+
+    const originalChannelId = member.voice.channel.id;
+    console.log(`moving ${member.user.tag} to ${deadChannel.name}`);
+
+    try {
+      await member.voice.setChannel(deadChannel, 'died in cs2');
+      deadPlayers.set(userId, { visordId: userId, originalChannelId, guildId: guild.id });
       break;
+    } catch (e) {
+      console.log(`couldnt move ${member.user.tag}:`, e.message);
     }
   }
+}
+
+async function moveAllBack() {
+  for (const [userId, data] of deadPlayers) {
+    try {
+      const guild = client.guilds.cache.get(data.guildId);
+      if (!guild) continue;
+
+      const member = await guild.members.fetch(userId).catch(() => null);
+      if (!member?.voice.channel) continue;
+
+      const deadChannelId = config.deadChannels[guild.id];
+      // only move back if still in dead channel
+      if (member.voice.channel.id !== deadChannelId) continue;
+
+      const originalChannel = guild.channels.cache.get(data.originalChannelId);
+      if (!originalChannel) continue;
+
+      await member.voice.setChannel(originalChannel, 'round ended');
+      console.log(`moved ${member.user.tag} back to ${originalChannel.name}`);
+    } catch (e) {
+      console.log(`couldnt move user back:`, e.message);
+    }
+  }
+  deadPlayers.clear();
 }
 
 app.listen(PORT, () => {
